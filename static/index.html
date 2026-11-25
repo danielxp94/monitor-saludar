@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SaludAR / Prensa OSDE — Monitor Inteligente de Noticias</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: Inter, system-ui, -apple-system, sans-serif; }
+    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 min-h-screen">
+  <!-- Top Navbar -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-[#004a80] text-white flex items-center justify-center font-bold text-lg shadow-sm">
+          S
+        </div>
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <h1 class="text-lg font-bold text-slate-900 leading-tight">SaludAR / Prensa OSDE</h1>
+            <span class="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">100% Gratis</span>
+            <span class="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-sky-50 text-sky-700 border border-sky-200">Sólo Argentina</span>
+            <span class="px-2 py-0.5 text-[11px] font-semibold rounded-full bg-slate-100 text-slate-700">13 Medios • Diaria</span>
+          </div>
+          <p class="text-xs text-slate-500 mt-0.5">Monitoreo inteligente, categorización Prensa OSDE, clustering y curación editorial</p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <span id="scan-status-badge" class="text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 font-medium">Listo</span>
+        <button id="btn-scan" onclick="triggerScan()" class="px-3.5 py-1.5 bg-[#004a80] hover:bg-sky-900 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition shadow-sm admin-only">
+          Escanear ahora
+        </button>
+        <button id="btn-reanalyze" onclick="triggerReanalyze()" title="Aplicar exclusiones, Sólo Argentina y recategorizar Prensa OSDE" class="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-medium rounded-lg transition admin-only">
+          Depurar base
+        </button>
+        <a id="btn-export-csv" href="/api/export/csv" class="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-medium rounded-lg transition">
+          Exportar CSV
+        </a>
+        <button id="btn-admin-auth" onclick="toggleAuthModal()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-lg transition border border-slate-300 flex items-center gap-1.5">
+          <span id="auth-status-icon">🔒</span>
+          <span id="auth-status-text">Ingresar</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Live Scan Progress Bar -->
+    <div id="scan-progress-wrap" class="hidden border-t border-slate-100 bg-sky-50/70">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2">
+        <div class="flex items-center justify-between text-xs text-sky-900 mb-1">
+          <span id="scan-step-text" class="font-medium">Iniciando escaneo...</span>
+          <span id="scan-counters-text" class="text-sky-700 font-mono">0%</span>
+        </div>
+        <div class="w-full h-1.5 bg-sky-200 rounded-full overflow-hidden">
+          <div id="scan-progress-bar" class="h-full bg-[#004a80] transition-all duration-300" style="width: 0%"></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+    <!-- Toast Notification -->
+    <div id="toast" class="hidden fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-xl bg-slate-900 text-white text-sm shadow-lg"></div>
+
+    <!-- KPI Summary Row -->
+    <section class="grid grid-cols-2 lg:grid-cols-6 gap-3">
+      <button onclick="resetAndGoArticles()" class="text-left bg-white p-3.5 rounded-xl border border-slate-200 hover:border-sky-300 transition shadow-xs">
+        <p class="text-[11px] text-slate-500 uppercase font-semibold tracking-wide">Noticias Indexadas</p>
+        <p id="stat-total" class="text-2xl font-bold text-slate-900 mt-1">-</p>
+        <p id="stat-24h" class="text-xs text-sky-700 font-medium mt-0.5">- en últimas 24 hs</p>
+      </button>
+
+      <button onclick="switchTab('events')" class="text-left bg-white p-3.5 rounded-xl border border-slate-200 hover:border-indigo-300 transition shadow-xs">
+        <p class="text-[11px] text-slate-500 uppercase font-semibold tracking-wide">Eventos Agrupados</p>
+        <p id="stat-events" class="text-2xl font-bold text-indigo-700 mt-1">-</p>
+        <p id="stat-multi-events" class="text-xs text-indigo-600 mt-0.5">- multi-medio</p>
+      </button>
+
+      <button onclick="quickFilterOsde()" class="text-left bg-white p-3.5 rounded-xl border border-slate-200 hover:border-sky-400 transition shadow-xs">
+        <p class="text-[11px] text-slate-500 uppercase font-semibold tracking-wide">Foco Grupo OSDE</p>
+        <p id="stat-osde" class="text-2xl font-bold text-[#004a80] mt-1">-</p>
+        <p class="text-xs text-slate-500 mt-0.5">OSDE, Bina, Flux, ejecutivos</p>
+      </button>
+
+      <button onclick="switchTab('portal')" class="text-left bg-white p-3.5 rounded-xl border border-slate-200 hover:border-emerald-300 transition shadow-xs">
+        <p class="text-[11px] text-slate-500 uppercase font-semibold tracking-wide">Portal Publicadas</p>
+        <p id="stat-approved" class="text-2xl font-bold text-emerald-700 mt-1">0</p>
+        <p id="stat-pending" class="text-xs text-slate-500 mt-0.5">0 pendientes</p>
+      </button>
+
+      <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+        <p class="text-[11px] text-slate-500 uppercase font-semibold tracking-wide">Sentimiento</p>
+        <div class="flex items-center gap-1.5 mt-1.5 text-xs font-semibold">
+          <button onclick="quickFilterSentiment('Positivo')" class="text-emerald-700 hover:underline">+<span id="stat-pos">0</span></button>
+          <span class="text-slate-300">/</span>
+          <button onclick="quickFilterSentiment('Neutro')" class="text-slate-600 hover:underline">=<span id="stat-neu">0</span></button>
+          <span class="text-slate-300">/</span>
+          <button onclick="quickFilterSentiment('Negativo')" class="text-rose-700 hover:underline">-<span id="stat-neg">0</span></button>
+        </div>
+        <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden flex mt-2.5">
+          <div id="bar-pos" class="bg-emerald-500 h-full" style="width: 0%"></div>
+          <div id="bar-neu" class="bg-slate-400 h-full" style="width: 0%"></div>
+          <div id="bar-neg" class="bg-rose-500 h-full" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+        <p class="text-[11px] text-slate-500 uppercase font-semibold tracking-wide">Medios y Barrido</p>
+        <p id="stat-sites" class="text-2xl font-bold text-slate-900 mt-1">-</p>
+        <p id="stat-last-scan" class="text-xs text-slate-500 mt-0.5 truncate">-</p>
+      </div>
+    </section>
+
+    <!-- Tabs Navigation -->
+    <section class="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+      <div class="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+        <nav class="flex flex-wrap gap-1.5">
+          <button id="tab-articles" onclick="switchTab('articles')" class="px-3.5 py-1.5 rounded-lg text-sm font-semibold bg-sky-50 text-[#004a80]">
+            Noticias
+          </button>
+          <button id="tab-portal" onclick="switchTab('portal')" class="px-3.5 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">
+            Portal Publicadas <span id="portal-count-badge" class="ml-1 px-1.5 py-0.2 rounded-full text-[11px] bg-emerald-100 text-emerald-800">0</span>
+          </button>
+          <button id="tab-events" onclick="switchTab('events')" class="px-3.5 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">
+            Eventos (Clustering)
+          </button>
+          <button id="tab-analytics" onclick="switchTab('analytics')" class="px-3.5 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">
+            Analítica
+          </button>
+          <button id="tab-config" onclick="switchTab('config')" class="px-3.5 py-1.5 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">
+            Criterios y Fuentes
+          </button>
+        </nav>
+        <div id="result-counter" class="text-xs font-medium text-slate-500"></div>
+      </div>
+
+      <!-- Articles Filters -->
+      <div id="filter-bar-articles" class="p-4 bg-slate-50/70 border-b border-slate-100 space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
+          <input id="f-q" type="text" placeholder="Buscar en titular, texto o notas..." onkeydown="if(event.key==='Enter') loadCurrentTab()" class="lg:col-span-2 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-sky-500" />
+          <select id="f-site" onchange="loadCurrentTab()" class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white">
+            <option value="">Todos los medios (13)</option>
+          </select>
+          <select id="f-primary-cat" onchange="loadCurrentTab()" class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white">
+            <option value="">Todas las categorías Prensa</option>
+            <option value="OSDE & Ecosistema">OSDE & Ecosistema</option>
+            <option value="OSDE Institucional & Unidades">OSDE Institucional & Unidades</option>
+            <option value="Competencia & Sector Prepagas">Competencia & Sector Prepagas</option>
+            <option value="Normativa & Regulaciones">Normativa & Regulaciones</option>
+            <option value="Economía & Costos">Economía & Costos</option>
+            <option value="Experiencia del Paciente & Reclamos">Experiencia del Paciente & Reclamos</option>
+            <option value="Gremiales & Recursos Humanos">Gremiales & Recursos Humanos</option>
+            <option value="Coberturas & PMO">Coberturas & PMO</option>
+            <option value="Industria Farmacéutica & Insumos">Industria Farmacéutica & Insumos</option>
+            <option value="Prestadores & Servicios">Prestadores & Servicios</option>
+            <option value="Tecnología & Salud Digital">Tecnología & Salud Digital</option>
+            <option value="Salud Pública & Epidemiología">Salud Pública & Epidemiología</option>
+            <option value="Salud Positiva, Bienestar & Avances">Salud Positiva, Bienestar & Avances</option>
+            <option value="Mercado & Prepagas">Mercado & Prepagas</option>
+          </select>
+          <select id="f-criterion" onchange="loadCurrentTab()" class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white">
+            <option value="">Todos los criterios (Col F)</option>
+            <option value="Salud">Salud</option>
+            <option value="Normativas de salud">Normativas de salud</option>
+            <option value="Resoluciones de la superintendencia">Resoluciones de la superintendencia</option>
+          </select>
+          <select id="f-hours" onchange="loadCurrentTab()" class="px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white font-medium text-sky-900">
+            <option value="">Todo el historial</option>
+            <option value="24">Solo últimas 24 hs (Hoy)</option>
+            <option value="48">Últimas 48 hs</option>
+            <option value="168">Últimos 7 días</option>
+          </select>
+        </div>
+
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <select id="f-editorial" onchange="loadCurrentTab()" class="px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white">
+              <option value="">Todos los estados</option>
+              <option value="Pendiente">Pendiente</option>
+              <option value="Aprobada">Aprobada</option>
+              <option value="Descartada">Descartada</option>
+            </select>
+            <select id="f-sentiment" onchange="loadCurrentTab()" class="px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white">
+              <option value="">Todo sentimiento</option>
+              <option value="Positivo">Positivo</option>
+              <option value="Neutro">Neutro</option>
+              <option value="Negativo">Negativo</option>
+            </select>
+            <select id="f-group" onchange="loadCurrentTab()" class="px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white">
+              <option value="">Todas las columnas</option>
+              <option value="palabras_claves">Col C: Palabras claves</option>
+              <option value="personalidades_otras_prepagas">Col D: Personalidades / Prepagas</option>
+            </select>
+            <select id="f-sort" onchange="loadCurrentTab()" class="px-2.5 py-1.5 border border-slate-300 rounded-lg bg-white">
+              <option value="recent">Más recientes</option>
+              <option value="relevance">Mayor relevancia</option>
+              <option value="sentiment_desc">Más positivas</option>
+              <option value="sentiment_asc">Más negativas</option>
+            </select>
+            <label class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 cursor-pointer select-none">
+              <input id="f-osde" type="checkbox" onchange="loadCurrentTab()" class="rounded text-sky-600" />
+              <span class="font-medium text-slate-700">Solo Grupo OSDE</span>
+            </label>
+            <span id="active-term-chip" class="hidden inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-100 text-sky-800 font-medium">
+              Término: <strong id="active-term-label"></strong>
+              <button onclick="clearTermFilter()" class="hover:text-sky-950 font-bold">&times;</button>
+            </span>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button onclick="resetFilters()" class="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 rounded-lg transition">
+              Limpiar filtros
+            </button>
+            <button onclick="loadCurrentTab()" class="px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg transition">
+              Aplicar
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Portal Filters -->
+      <div id="filter-bar-portal" class="hidden p-4 bg-emerald-50/50 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <input id="p-q" type="text" placeholder="Buscar en noticias publicadas..." onkeyup="loadPortal()" class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm bg-white w-72" />
+          <span class="text-xs text-slate-600">Muestra las noticias marcadas como <strong>Aprobada</strong> (equivalente a <code>Publicadas_Site</code>).</span>
+        </div>
+        <button onclick="copyPortalBriefing()" class="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg transition">
+          Copiar resumen para WhatsApp / Mail
+        </button>
+      </div>
+
+      <!-- Events Filters -->
+      <div id="filter-bar-events" class="hidden p-4 bg-slate-50/70 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2.5">
+          <input id="e-q" type="text" placeholder="Buscar evento..." onkeydown="if(event.key==='Enter') loadCurrentTab()" class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm bg-white w-60" />
+          <select id="e-criterion" onchange="loadCurrentTab()" class="px-3 py-1.5 border border-slate-300 rounded-lg text-sm bg-white">
+            <option value="">Todos los criterios</option>
+            <option value="Salud">Salud</option>
+            <option value="Normativas de salud">Normativas de salud</option>
+            <option value="Resoluciones de la superintendencia">Resoluciones de la superintendencia</option>
+          </select>
+          <label class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 text-xs cursor-pointer">
+            <input id="e-multi" type="checkbox" onchange="loadCurrentTab()" class="rounded text-indigo-600" />
+            <span class="font-medium text-slate-700">Solo multi-medio (2+ diarios)</span>
+          </label>
+          <label class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white border border-slate-300 text-xs cursor-pointer">
+            <input id="e-osde" type="checkbox" onchange="loadCurrentTab()" class="rounded text-sky-600" />
+            <span class="font-medium text-slate-700">Solo Grupo OSDE</span>
+          </label>
+        </div>
+        <button onclick="loadCurrentTab()" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg transition">
+          Actualizar eventos
+        </button>
+      </div>
+    </section>
+
+    <!-- Main Dynamic Content -->
+    <section id="content-area" class="space-y-3"></section>
+  </main>
+
+  <!-- Article Reader & Editorial Curation Modal -->
+  <div id="article-modal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4" onclick="if(event.target===this) closeModal()">
+    <div class="bg-white rounded-2xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4">
+        <div id="modal-meta-top" class="flex flex-wrap items-center gap-2 text-xs"></div>
+        <button onclick="closeModal()" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-900 text-xl leading-none">&times;</button>
+      </div>
+      <div id="modal-body" class="p-6 overflow-y-auto space-y-4"></div>
+      <div class="px-6 py-3 border-t border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
+        <span id="modal-meta-bottom" class="text-xs text-slate-500"></span>
+        <div class="flex items-center gap-2">
+          <button onclick="closeModal()" class="px-3.5 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg">Cerrar</button>
+          <a id="modal-external-link" href="#" target="_blank" rel="noopener" class="px-4 py-1.5 bg-[#004a80] hover:bg-sky-900 text-white text-sm font-medium rounded-lg">
+            Abrir en medio original &#8599;
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Login Modal -->
+  <div id="login-modal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4" onclick="if(event.target===this) toggleAuthModal()">
+    <div class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="font-bold text-slate-900 text-base flex items-center gap-2">
+          <span>🔒</span> Clave de Administración
+        </h3>
+        <button onclick="toggleAuthModal()" class="text-slate-400 hover:text-slate-600 font-bold">&times;</button>
+      </div>
+      <p class="text-xs text-slate-600">
+        Ingresá la clave de administrador para aprobar noticias, disparar escaneos o editar criterios. El público general tiene acceso de solo lectura.
+      </p>
+      <form onsubmit="handleLogin(event)" class="space-y-3">
+        <input id="admin-pass-input" type="password" required placeholder="Contraseña..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#004a80]" />
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <button type="button" onclick="toggleAuthModal()" class="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+          <button type="submit" class="px-4 py-1.5 bg-[#004a80] hover:bg-sky-900 text-white text-xs font-semibold rounded-lg">Entrar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
